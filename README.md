@@ -7,8 +7,7 @@ The study is supported by the National Science Centre, Poland, grant no. 2018/29
 <h4>Instructions</h4>
 
 1.	Download the ‘Virtual-Species’ repository 
-2.	Download data necessary for the analysis as one compressed folder: https://doi.org/10.5281/zenodo.7061476,  
-    or each file separately: https://doi.org/10.5281/zenodo.7017179
+2.	Download data necessary for the analysis: https://zenodo.org/record/7732648
 3.	Create a 'data' directory in the main repository folder and place all data files there 
 4.	Set the main repository folder as a working directory 
 5.	Ready to work! 
