@@ -1,5 +1,6 @@
 
-### Step2: Generating a dynamic virtual species from a spatiotemporal model ###
+### Step 2: Generating a dynamic virtual species from a spatiotemporal model ###
+
 
 # Setup -------------------------------------------------------------------
 
@@ -9,7 +10,7 @@ library(terra)
 library(data.table)
 library(RColorBrewer)
 
-source("R/maps.R")
+source("R/setup.R")
 
 # The fitted model
 load("data/gamm_selected.RData")
@@ -33,10 +34,10 @@ vs[["observer_id"]] <- factor(levels(fit[["model"]][["observer_id"]])[1])
 vs[["eta"]] <- predict(fit, vs, type = "link", exclude = c("s(plot_id)", "s(observer_id"))
 
 # Simulate random intercepts for every square in the study area
-sd_plot_id <- gam.vcomp(fit)["s(plot_id)", "std.dev"] # estimated SD for random intercepts
+sd_plot <- quiet(gam.vcomp(fit))["s(plot_id)", "std.dev"] # estimated SD for random intercepts
 id <- sort(unique(vs[["id"]]))
-set.seed(123)
-id_r <- data.table(id = id, id_r = rnorm(length(id), 0, sd_plot_id))
+set.seed(1)
+id_r <- data.table(id = id, id_r = rnorm(length(id), 0, sd_plot))
 # summary(id_r); hist(id_r$id_r)
 vs <- merge(vs, id_r, by = "id")
 
@@ -49,22 +50,26 @@ vs[["mu"]] <- trans(vs[["eta"]])
 vs[["mur"]] <- trans(vs[["etar"]])
 
 # Random draws from the process distribution
-# The estimated sale parameter (phi):
-# phi <- sum((fit$weights * fit$residuals^2)[fit$weights > 0]) / fit$df.residual # Pearson method
-phi <- fit$deviance / fit$df.residual # using the deviance method
-p <- fit$family$getTheta(TRUE) # the estimated shape parameter
-set.seed(123)
-vs[["sim_dr"]] <- rTweedie(vs[["mur"]], p, phi)
+phi <- fit$deviance / fit$df.residual # the estimated sale parameter (phi) using the deviance method
+xi <- fit$family$getTheta(TRUE) # the estimated shape parameter
+set.seed(1)
+vs[["sim_dr"]] <- rTweedie(vs[["mur"]], xi, phi)
+
 
 # Maps --------------------------------------------------------------------
 
-maps(vs, "mu")
-maps(vs, "mur")
-maps(vs, "sim_dr")
 yr <- 2010; maps(vs[vs$year == yr, ], "mu", fact = 1, main = yr)
+maps(vs, "mu")
+maps(vs, "sim_dr")
 
 
 # Saving virtual species data ---------------------------------------------
 
 vs <- vs[, c("id_year", "id", "year", "fyear", "x", "y", "mu", "mur", "sim_dr")]
 write.fst(vs, "data/vs.fst", compress = 100)
+
+
+# What next ---------------------------------------------------------------
+
+# Go to the script '3_Virtual_Ecologist.R' to sample from the VS.
+

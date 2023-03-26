@@ -1,0 +1,186 @@
+---
+title: "Calibrating the virtual species" 
+author: "Katarzyna Malinowska, Katarzyna Markowska and Lechosław Kuczyński"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Calibrating the virtual species}
+  %\VignetteEncoding{UTF-8}
+  %\VignetteEngine{knitr::rmarkdown}
+---
+
+```{=html}
+<style>
+body{
+  text-align: justify;
+}
+
+h1{
+  font-size: 200%;
+  text-align: center;
+}
+
+h4.author {
+  text-align: center;
+}
+  
+</style>
+```
+```{r setup, echo = FALSE}
+knitr::opts_chunk$set(
+	message = FALSE,
+	warning = FALSE,
+	autodep = TRUE,
+	cache = TRUE
+)
+```
+
+### Introduction
+
+Simulation experiments performed by generating many replicates of virtual species (VS) and virtual ecologist data (VE) revealed some biases in the proposed method.
+
+Here, we show how to calibrate VS and VE data by mapping their frequency distributions, using relationships between simulated and observed data.
+
+### 1. Simulating from the fitted model
+
+First, load the necessary packages and functions:
+
+```{r libraries, echo=TRUE}
+library(fst)
+library(mgcv)
+library(data.table)
+library(parallel)
+library(pbapply)
+
+source("../R/setup.R")        # helper functions and set-up
+source("../R/replication.R")  # functions written to facilitate replication experiments
+```
+
+Load the real data:
+
+```{r real-data}
+load("../data/data.RData")
+observed <- data$dens
+
+# The data needed for simulations
+load("../data/pred_data.RData")
+```
+
+Create a cluster:
+
+```{r cluster}
+
+ncores <- 4L
+cl <- makeCluster(ncores)
+
+quiet(clusterEvalQ(cl, {
+  library(mgcv)
+  library(data.table)
+}))
+
+clusterExport(cl, c("observed", "predict.qq_map", "threshold"))
+```
+
+Now, simulate VS and VE data from the fitted model many times. This takes a lot of time, however we can load simulation results from a file.
+
+```{r simulate-1, message=FALSE, warning=FALSE}
+# set.seed(1)
+# vse <- rep_VSE(n = 1000, fit, pred_data)
+load("../data/vse.RData")
+
+vs_sim <- vse[, 1, ]
+ve_sim <- vse[, 2, ]
+```
+
+Let us compare simulated vs. observed.
+
+```{r fig-1, fig.height=7, fig.width=7}
+op <- par(mfrow = c(2, 2), mar = c(4.5, 4.5, 2, 2))
+rep_qqplot(observed, ve_sim, cl = cl) # Q-Q plot
+rep_hist(observed, ve_sim, mean, breaks = 30, main = "", xlab = "Mean")
+rep_hist(observed, ve_sim, sd, breaks = 30, main = "", xlab = "Standard deviation")
+rep_hist(observed, ve_sim, prevalence, breaks = 20, main = "", xlab = "Prevalence")
+par(op)
+```
+
+Generally, in some ranges of population density, quantiles of the simulated data (green) deviate from the observed quantiles (red). Moreover, occasionally simulations tend to generate unrealistically high densities. The mean seems to be correctly estimated - the observed value (red dashed line) falls within the 95% *Monte Carlo* confidence intervals calculated from simulations (green dashed lines). The variance is underestimated and the prevalence is definitely strongly overestimated.
+
+### 2. Fitting calibration functions
+
+To correct these biases, one can apply a function which is a composite of quantile mapping and a threshold function.
+
+First, fit quantile-quantile maps:
+
+```{r fit-Q-Q-maps, fig.height=5, fig.width=5}
+# Virtual sampling: VS -> VE
+s_hat <- qq_map(vs_sim, ve_sim, m = 1)
+xq <- seq(0, max(vs_sim), len = 100)
+yq <- predict(s_hat, list(x = xq))
+plot(xq, yq, type = "l", xlab = "VS", ylab = "VE", col = col[2], lwd = 2); grid()
+abline(a = 0, b = 1, lty = 2, col = col[1], lwd = 2)
+
+# Mapping simulated VE data using observed data as a target: VE -> VE'
+h <- qq_map(ve_sim, observed, m = 1)
+xq <- seq(0, max(ve_sim), len = 100)
+yq <- predict(h, list(x = xq))
+plot(xq, yq, type = "l", xlab = "VE", ylab = "Observed", col = col[2], lwd = 2); grid()
+abline(a = 0, b = 1, lty = 2, col = col[1], lwd = 2)
+
+# Inversed virtual sampling: VE -> VS
+inv_s_hat <- qq_map(ve_sim, vs_sim, m = 1)
+xq <- seq(0, max(ve_sim), len = 100)
+yq <- predict(inv_s_hat, list(x = xq))
+plot(xq, yq, type = "l", xlab = "VE", ylab = "VS", col = col[2], lwd = 2); grid()
+abline(a = 0, b = 1, lty = 2, col = col[1], lwd = 2)
+```
+
+A list defining a composite function t: VS -> VS'
+```{r t}
+t <- list(
+  s_hat = function(x) predict(s_hat, list(x = x)),
+  f = function(x) {
+    hh <- predict(h, list(x = x))
+    q <- quantile(hh, 1 - prevalence(observed))
+    threshold(hh, q)
+  },
+  inv_s_hat = function(x) predict(inv_s_hat, list(x = x))
+)
+```
+
+
+### 3. Simulating from the model and mapping frequency distributions
+
+Now, simulations are performed again, but this time, VS is calibrated on-the-fly.  
+As previously, to speed things up, simulation results can be loaded from a file. 
+
+```{r simulate-2}
+
+# clusterExport(cl, c("pred_data", "observed", "predict.qq_map", "threshold", 
+#                     "prevalence", "s_hat", "h", "inv_s_hat", "t"))
+# set.seed(1)
+# vse_prim <- rep_VSE(n = 1000, fit, pred_data, map = t, cl = cl)
+load("../data/vse_prim.RData")
+
+vs_prim <- vse_prim[, 1, ]
+ve_prim <- vse_prim[, 2, ]
+```
+
+Comparison of simulated VE data versus observed data:
+```{r fig-2, fig.height=7, fig.width=7}
+ma <- max(max(log1p(observed)), max(log1p(ve_prim))) + 0.2
+breaks <- seq(0, ma, 1/3)
+op <- par(mfrow = c(2, 2), mar = c(4.5, 4.5, 2, 2))
+hist_comp(log1p(ve_prim), log1p(observed), breaks = breaks, xname = "Population log-density")
+rep_qqplot(observed, ve_prim, cl = cl) # Q-Q plot
+rep_hist(observed, ve_prim, mean, breaks = 30, main = "", xlab = "Mean")
+rep_hist(observed, ve_prim, sd, breaks = 20, main = "", xlab = "Standard deviation")
+# rep_hist(observed, ve_prim, prevalence, breaks = 30, main = "", xlab = "Prevalence")
+par(op)
+```
+
+In general, the population abundance distributions of real and simulated data share the same properties: a distinct spike at zero (representing unsuitable or unoccupied sites) and some densities above zero (representing a spectrum of sites of positive, yet varying habitat suitability). The Q-Q plot shows a great convergence of observed (red) vs. simulated (green) quantiles . The mean and standard deviation of the observed data are both within 95% empirical confidence intervals calculated from the simulated data.  
+
+
+```{r on-exit, include=FALSE}
+stopCluster(cl)
+```
+

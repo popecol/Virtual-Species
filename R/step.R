@@ -1,8 +1,9 @@
 
-backward <- function(obj, p = 0.05)
-  # Backward model selection for 'gam' objects.
-  # Author: lechu@amu.edu.pl
+# Backward model selection for 'gam' objects.
+# Author: lechu@amu.edu.pl
 
+
+backward <- function(obj, p = 0.05)
 {
   su <- summary(obj, re.test = FALSE)
   A <- to.remove(su)
@@ -27,7 +28,7 @@ backward <- function(obj, p = 0.05)
 to.remove <- function(su) {
   # Helper function extracting p-values from a 'summary.gam' object, 
   # excluding random factors, time and space.
-
+  
   A <- data.frame(su$s.table)
   A <- A[!grepl("(plot_id|observer_id|year|fyear|(x,y))", rownames(A)), ]
   A <- transform(A, edf = round(edf, 4), p.value = round(p.value, 4))
